@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
-import { io } from "socket.io-client";
+import { useEffect, useState } from "react";
 import { message, aborted, type Request } from "./api.js";
-import type { TicketChange } from "../server/contracts.js";
+import { useWorkspaceEvents } from "./useWorkspaceEvents.js";
 import {
   statuses,
-  label,
-  date,
   type Me,
   type Workspace,
-  type Page,
-} from "./model.js";
+  type TicketPage,
+} from "../server/contracts.js";
+import { label, date } from "./format.js";
 import { NewTicket } from "./NewTicket.js";
 import { Conversation } from "./Conversation.js";
 export function Dashboard({
@@ -23,14 +21,15 @@ export function Dashboard({
   request: Request;
   onWorkspace: (id: string) => void;
 }) {
-  const [tick, setTick] = useState(0);
-  const refresh = useCallback(() => setTick((value) => value + 1), []);
-  const [live, setLive] = useState(false);
+  const { tick, refresh, live } = useWorkspaceEvents(
+    workspace.id,
+    me.csrfToken,
+  );
   const [page, setPage] = useState(0);
   const [filter, setFilter] = useState("");
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
-  const [list, setList] = useState<Page>({
+  const [list, setList] = useState<TicketPage>({
     items: [],
     hasMore: false,
     page: 0,
@@ -41,42 +40,10 @@ export function Dashboard({
   const [error, setError] = useState("");
   const base = `/workspaces/${workspace.id}/tickets`;
   useEffect(() => {
-    const socket = io({
-      transports: ["websocket"],
-      auth: { csrfToken: me.csrfToken },
-    });
-    let active = true;
-    socket.on("connect", async () => {
-      try {
-        const ack = await socket
-          .timeout(5000)
-          .emitWithAck("workspace:watch", { workspaceId: workspace.id });
-        if (active) {
-          setLive(ack.ok);
-          refresh();
-        }
-      } catch {
-        if (active) setLive(false);
-      }
-    });
-    socket.on("disconnect", () => setLive(false));
-    socket.on("connect_error", () => setLive(false));
-    socket.on("ticket:changed", (change: TicketChange) => {
-      if (change.workspaceId === workspace.id) refresh();
-    });
-    const timer = setInterval(refresh, 15000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-      socket.removeAllListeners();
-      socket.disconnect();
-    };
-  }, [me.csrfToken, workspace.id, refresh]);
-  useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({ page: String(page), q: query });
     if (filter) params.set("status", filter);
-    request<Page>(`${base}?${params}`, { signal: controller.signal })
+    request<TicketPage>(`${base}?${params}`, { signal: controller.signal })
       .then((result) => {
         if (controller.signal.aborted) return;
         setList(result);

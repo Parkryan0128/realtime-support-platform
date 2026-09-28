@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, HttpError, message, aborted, type Request } from "./api.js";
-import type { Me } from "./model.js";
+import type { Me } from "../server/contracts.js";
 import { Login } from "./Login.js";
 import { Dashboard } from "./Dashboard.js";
 export default function App() {

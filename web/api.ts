@@ -27,11 +27,17 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      code: "UNAVAILABLE",
-      message: "The server is unavailable",
-    }));
-    throw new HttpError(response.status, error.code, error.message);
+    const body: unknown = await response.json().catch(() => null);
+    const error = body && typeof body === "object" ? body : {};
+    const code =
+      "code" in error && typeof error.code === "string"
+        ? error.code
+        : "HTTP_ERROR";
+    const detail =
+      "message" in error && typeof error.message === "string"
+        ? error.message
+        : `Request failed (${response.status})`;
+    throw new HttpError(response.status, code, detail);
   }
   return response.status === 204 ? (undefined as T) : response.json();
 }

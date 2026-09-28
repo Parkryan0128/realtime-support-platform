@@ -11,13 +11,11 @@ async function login(page: Page, email: string) {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 }
-async function create(page: Page) {
+async function create(page: Page, body = "My tracking link is not working.") {
   const subject = `Delivery ${randomUUID().slice(0, 8)}`;
   await page.getByRole("button", { name: "New request" }).click();
   await page.getByLabel("Subject", { exact: true }).fill(subject);
-  await page
-    .getByLabel("Describe the issue")
-    .fill("My tracking link is not working.");
+  await page.getByLabel("Describe the issue").fill(body);
   await page
     .getByRole("button", { name: "Create request", exact: true })
     .click();
@@ -88,6 +86,56 @@ test("customer and agent exchange live replies, recover after disconnect, assign
   } finally {
     await customerContext.close();
     await agentContext.close();
+  }
+});
+
+test("a delayed conversation response cannot replace a newly selected conversation", async ({
+  page,
+}) => {
+  await login(page, "alice@acme.test");
+  const first = await create(
+    page,
+    "Only the first conversation contains this sentence.",
+  );
+  const second = await create(page, "This belongs to the second conversation.");
+  const list = await (
+    await page.request.get(
+      `/api/workspaces/${acme}/tickets?q=${encodeURIComponent(first)}`,
+    )
+  ).json();
+  const path = `**/tickets/${list.items[0].id}`;
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let intercepted = false;
+  await page.route(
+    path,
+    async (route) => {
+      const response = await route.fetch();
+      intercepted = true;
+      await delayed;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  try {
+    await page.getByRole("button", { name: new RegExp(first) }).click();
+    await expect.poll(() => intercepted).toBe(true);
+    await page.getByRole("button", { name: new RegExp(second) }).click();
+    await expect(page.getByRole("heading", { name: second })).toBeVisible();
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+    await expect(page.getByRole("log")).toContainText(
+      "This belongs to the second conversation.",
+    );
+    await expect(page.getByRole("log")).not.toContainText(
+      "Only the first conversation",
+    );
+    await expect(page.getByRole("heading", { name: second })).toBeVisible();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
   }
 });
 

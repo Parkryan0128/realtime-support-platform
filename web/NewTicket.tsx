@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { message, aborted, type Request } from "./api.js";
-import type { Ticket } from "../server/contracts.js";
+import { priorities, type Ticket } from "../server/contracts.js";
+import { label } from "./format.js";
+
 export function NewTicket({
   request,
   base,
@@ -15,9 +17,14 @@ export function NewTicket({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const controller = useRef(new AbortController());
-  useEffect(() => () => controller.current.abort(), []);
+  useEffect(() => {
+    const current = new AbortController();
+    controller.current = current;
+    return () => current.abort();
+  }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     const form = new FormData(event.currentTarget);
     setBusy(true);
     setError("");
@@ -50,9 +57,11 @@ export function NewTicket({
         <label>
           Priority
           <select name="priority" defaultValue="NORMAL">
-            <option value="LOW">Low</option>
-            <option value="NORMAL">Normal</option>
-            <option value="HIGH">High</option>
+            {priorities.map((priority) => (
+              <option key={priority} value={priority}>
+                {label(priority)}
+              </option>
+            ))}
           </select>
         </label>
         <label>
