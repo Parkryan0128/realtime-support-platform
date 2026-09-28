@@ -3,12 +3,18 @@ import { z } from "zod";
 import type { Database, Queryable } from "./db/database.js";
 import { membership } from "./auth.js";
 import { ApiError, forbidden, notFound } from "./errors.js";
-import type { Message, Ticket, TicketStatus } from "./contracts.js";
+import {
+  statuses,
+  priorities,
+  type Message,
+  type Ticket,
+  type TicketStatus,
+} from "./contracts.js";
 
 export const createTicket = z
   .object({
     subject: z.string().trim().min(1).max(160),
-    priority: z.enum(["LOW", "NORMAL", "HIGH"]).default("NORMAL"),
+    priority: z.enum(priorities).default("NORMAL"),
     body: z.string().trim().min(1).max(4000),
   })
   .strict();
@@ -21,8 +27,8 @@ export const postMessage = z
 export const updateTicket = z
   .object({
     version: z.number().int().positive(),
-    status: z.enum(["OPEN", "PENDING", "RESOLVED"]).optional(),
-    priority: z.enum(["LOW", "NORMAL", "HIGH"]).optional(),
+    status: z.enum(statuses).optional(),
+    priority: z.enum(priorities).optional(),
     assigneeId: z.string().uuid().nullable().optional(),
   })
   .strict()
@@ -36,6 +42,22 @@ const selectTicket = `SELECT t.*,c.name AS customer_name,a.name AS assignee_name
   JOIN users c ON c.id=t.customer_id LEFT JOIN users a ON a.id=t.assignee_id`;
 const selectMessage = `SELECT m.id,m.ticket_id,m.sender_id,u.name AS sender_name,m.client_id,m.sequence,m.body,m.created_at
   FROM messages m JOIN users u ON u.id=m.sender_id`;
+type TicketRow = Omit<Ticket, "created_at" | "updated_at"> & {
+  created_at: Date;
+  updated_at: Date;
+};
+type MessageRow = Omit<Message, "created_at"> & { created_at: Date };
+
+function ticketFromRow(row: TicketRow): Ticket {
+  return {
+    ...row,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+  };
+}
+function messageFromRow(row: MessageRow): Message {
+  return { ...row, created_at: row.created_at.toISOString() };
+}
 
 export class Tickets {
   constructor(private db: Database) {}
@@ -48,13 +70,13 @@ export class Tickets {
     mode: "read" | "lock" = "read",
   ) {
     const role = await membership(tx, workspace, user);
-    const [ticket] = await tx.query<Ticket>(
+    const [ticket] = await tx.query<TicketRow>(
       `${selectTicket} WHERE t.workspace_id=$1 AND t.id=$2
       AND ($4<>'CUSTOMER' OR t.customer_id=$3) ${mode === "lock" ? "FOR UPDATE OF t" : ""}`,
       [workspace, ticketId, user, role],
     );
     if (!ticket) throw notFound();
-    return { ticket, role };
+    return { ticket: ticketFromRow(ticket), role };
   }
 
   async get(user: string, workspace: string, ticket: string) {
@@ -65,17 +87,21 @@ export class Tickets {
     user: string,
     workspace: string,
     page: number,
-    status?: string,
+    status?: TicketStatus,
     search = "",
   ) {
     const role = await membership(this.db, workspace, user);
-    const rows = await this.db.query<Ticket>(
+    const rows = await this.db.query<TicketRow>(
       `${selectTicket} WHERE t.workspace_id=$1 AND ($2<>'CUSTOMER' OR t.customer_id=$3)
       AND ($4::text IS NULL OR t.status=$4) AND position(lower($5) in lower(t.subject))>0
       ORDER BY t.updated_at DESC,t.id DESC LIMIT 51 OFFSET $6`,
       [workspace, role, user, status ?? null, search, page * 50],
     );
-    return { items: rows.slice(0, 50), hasMore: rows.length > 50, page };
+    return {
+      items: rows.slice(0, 50).map(ticketFromRow),
+      hasMore: rows.length > 50,
+      page,
+    };
   }
 
   async create(
@@ -170,11 +196,11 @@ export class Tickets {
     after: number,
   ) {
     await this.access(this.db, user, workspace, ticket);
-    const rows = await this.db.query<Message>(
+    const rows = await this.db.query<MessageRow>(
       `${selectMessage} WHERE m.workspace_id=$1 AND m.ticket_id=$2 AND m.sequence>$3 ORDER BY m.sequence LIMIT 101`,
       [workspace, ticket, after],
     );
-    const messages = rows.slice(0, 100);
+    const messages = rows.slice(0, 100).map(messageFromRow);
     return {
       messages,
       hasMore: rows.length > 100,
@@ -196,7 +222,7 @@ export class Tickets {
         ticketId,
         "lock",
       );
-      const [existing] = await tx.query<Message>(
+      const [existing] = await tx.query<MessageRow>(
         `${selectMessage} WHERE m.ticket_id=$1 AND m.sender_id=$2 AND m.client_id=$3`,
         [ticketId, user, input.clientId],
       );
@@ -207,7 +233,7 @@ export class Tickets {
             "MESSAGE_CONFLICT",
             "Message ID was already used with different content",
           );
-        return existing;
+        return messageFromRow(existing);
       }
       if (ticket.status === "RESOLVED")
         throw new ApiError(
@@ -233,9 +259,11 @@ export class Tickets {
           input.body,
         ],
       );
-      return (
-        await tx.query<Message>(`${selectMessage} WHERE m.id=$1`, [messageId])
-      )[0];
+      const [message] = await tx.query<MessageRow>(
+        `${selectMessage} WHERE m.id=$1`,
+        [messageId],
+      );
+      return messageFromRow(message);
     });
   }
 }

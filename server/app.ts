@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Database } from "./db/database.js";
 import { Auth, membership } from "./auth.js";
 import { ApiError, errors, forbidden } from "./errors.js";
+import type { Agent } from "./contracts.js";
 
 export interface AppOptions {
   db: Database;
@@ -11,7 +12,7 @@ export interface AppOptions {
   secureCookies?: boolean;
   sessionTtlMs?: number;
 }
-export const id = z.string().uuid();
+const id = z.string().uuid();
 export function createApp(options: AppOptions) {
   const { db, origin, secureCookies = false } = options;
   const app = express();
@@ -28,6 +29,10 @@ export function createApp(options: AppOptions) {
       },
     }),
   );
+  app.use("/api", (_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
   app.use(express.json({ limit: "32kb" }));
   app.use("/api", (req, _res, next) => {
     if (req.get("Origin") && req.get("Origin") !== origin) throw forbidden();
@@ -90,7 +95,7 @@ export function createApp(options: AppOptions) {
     const role = await membership(db, workspace, res.locals.session.user_id);
     if (role === "CUSTOMER") throw forbidden();
     res.json(
-      await db.query(
+      await db.query<Agent>(
         `SELECT u.id,u.name,m.role FROM memberships m JOIN users u ON u.id=m.user_id
       WHERE m.workspace_id=$1 AND m.role IN ('AGENT','ADMIN') ORDER BY u.name`,
         [workspace],

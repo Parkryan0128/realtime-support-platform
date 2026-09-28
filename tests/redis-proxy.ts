@@ -1,6 +1,5 @@
 import { createServer, connect, type Socket } from "node:net";
 
-// A test-owned TCP relay lets the test sever Redis without touching the shared service.
 export async function redisProxy(redisUrl: string) {
   const upstreamUrl = new URL(redisUrl);
   const sockets = new Set<Socket>();

@@ -61,7 +61,6 @@ export async function notifications(
   }
   return {
     publish(change: TicketChange) {
-      // A failed hint must not turn an already committed HTTP write into a failure.
       if (publisher.isReady)
         void publisher
           .publish(channel, JSON.stringify({ source, ...change }))

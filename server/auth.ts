@@ -4,9 +4,9 @@ import { parseCookie } from "cookie";
 import type { RequestHandler } from "express";
 import type { Database, Queryable } from "./db/database.js";
 import { ApiError, forbidden, notFound } from "./errors.js";
+import type { Role, Workspace } from "./contracts.js";
 
 const derive = promisify(scrypt);
-export type Role = "CUSTOMER" | "AGENT" | "ADMIN";
 export interface Session {
   token_hash: string;
   user_id: string;
@@ -82,7 +82,7 @@ export class Auth {
     ]);
   }
   async workspaces(userId: string) {
-    return this.db.query<{ id: string; name: string; role: Role }>(
+    return this.db.query<Workspace>(
       `SELECT w.id,w.name,m.role FROM workspaces w
       JOIN memberships m ON m.workspace_id=w.id WHERE m.user_id=$1 ORDER BY w.name`,
       [userId],

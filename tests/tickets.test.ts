@@ -3,12 +3,7 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { testDatabase, clearDatabase } from "./database.js";
 import { demo, seedDemo } from "../server/db/seed.js";
-import {
-  Tickets,
-  createTicket,
-  postMessage,
-  updateTicket,
-} from "../server/tickets.js";
+import { Tickets } from "../server/tickets.js";
 import { createApp } from "../server/app.js";
 import { ticketRoutes } from "../server/ticket-routes.js";
 import type { Database } from "../server/db/database.js";
@@ -36,8 +31,10 @@ test("ticket creation saves its first message in the same transaction", async ()
   const ticket = await create();
   const history = await tickets.messages(demo.alice, demo.acme, ticket.id, 0);
   expect(ticket.status).toBe("OPEN");
+  expect(ticket.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
   expect(history.messages.map((m) => m.sequence)).toEqual([1]);
   expect(history.messages[0].body).toBe("Please help");
+  expect(history.messages[0].created_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
 });
 test("customers and agents cannot access tickets across ownership or workspace boundaries", async () => {
   const t = await create();

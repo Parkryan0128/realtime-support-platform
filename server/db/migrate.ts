@@ -25,7 +25,6 @@ export async function migrate(
           throw new Error(`Applied migration changed: ${name}`);
         continue;
       }
-      // Migration files contain plain DDL, without procedural bodies or semicolons in literals.
       for (const statement of sql
         .split(";")
         .map((part) => part.trim())

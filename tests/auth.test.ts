@@ -30,12 +30,14 @@ test("passwords are verified and authentication uses an HttpOnly cookie", async 
     .expect(401);
   const response = await login();
   expect(response.status).toBe(200);
+  expect(response.headers["cache-control"]).toBe("no-store");
   expect(response.headers["set-cookie"][0]).toContain("HttpOnly");
   expect(response.headers["set-cookie"][0]).toContain("SameSite=Lax");
   const me = await request(runtime.app)
     .get("/api/me")
     .set("Cookie", response.headers["set-cookie"])
     .expect(200);
+  expect(me.headers["cache-control"]).toBe("no-store");
   expect(me.body.workspaces).toEqual([
     { id: demo.acme, name: "Acme", role: "CUSTOMER" },
   ]);

@@ -25,7 +25,6 @@ export async function createRuntime(
     maxHttpBufferSize: 4096,
     serveClient: false,
   });
-  // Kept outside socket.data: session cookies stay private to this process.
   const viewers = new Map<string, { cookie: string; workspaceId?: string }>();
 
   io.use(async (socket, next) => {
@@ -106,7 +105,6 @@ export async function createRuntime(
     : undefined;
   function changed(change: TicketChange) {
     local(change);
-    // Notifications are hints. Committed messages remain available if Redis is down.
     redis?.publish(change);
   }
   ticketRoutes(app, tickets, changed);

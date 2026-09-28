@@ -1,5 +1,29 @@
-export type TicketStatus = "OPEN" | "PENDING" | "RESOLVED";
-export type Priority = "LOW" | "NORMAL" | "HIGH";
+export const statuses = ["OPEN", "PENDING", "RESOLVED"] as const;
+export const priorities = ["LOW", "NORMAL", "HIGH"] as const;
+export type TicketStatus = (typeof statuses)[number];
+export type Priority = (typeof priorities)[number];
+export type Role = "CUSTOMER" | "AGENT" | "ADMIN";
+
+export interface Workspace {
+  id: string;
+  name: string;
+  role: Role;
+}
+export interface Me {
+  user: { id: string; name: string; email: string };
+  csrfToken: string;
+  workspaces: Workspace[];
+}
+export interface Agent {
+  id: string;
+  name: string;
+  role: Exclude<Role, "CUSTOMER">;
+}
+export interface TicketPatch {
+  status?: TicketStatus;
+  priority?: Priority;
+  assigneeId?: string | null;
+}
 export interface Ticket {
   id: string;
   workspace_id: string;
@@ -28,4 +52,14 @@ export interface Message {
 export interface TicketChange {
   workspaceId: string;
   ticketId: string;
+}
+export interface TicketPage {
+  items: Ticket[];
+  hasMore: boolean;
+  page: number;
+}
+export interface MessagePage {
+  messages: Message[];
+  hasMore: boolean;
+  nextCursor: number;
 }

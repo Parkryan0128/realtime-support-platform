@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { Tickets, createTicket, postMessage, updateTicket } from "./tickets.js";
-import type { TicketChange } from "./contracts.js";
+import { statuses, type TicketChange } from "./contracts.js";
 
 const uuid = z.string().uuid();
 const routes = z.object({ workspace: uuid, ticket: uuid.optional() });
@@ -10,6 +10,15 @@ const numberParam = z
   .regex(/^\d+$/)
   .transform(Number)
   .pipe(z.number().int().min(0).max(1_000_000));
+const listQuery = z
+  .object({
+    page: numberParam.default(0),
+    status: z.enum(statuses).optional(),
+    q: z.string().max(160).default(""),
+  })
+  .strict();
+const historyQuery = z.object({ after: numberParam.default(0) }).strict();
+const ticketParams = routes.required();
 export function ticketRoutes(
   app: Express,
   tickets: Tickets,
@@ -18,14 +27,7 @@ export function ticketRoutes(
   const base = "/api/workspaces/:workspace/tickets";
   app.get(base, async (req, res) => {
     const { workspace } = routes.parse(req.params);
-    const query = z
-      .object({
-        page: numberParam.default(0),
-        status: z.enum(["OPEN", "PENDING", "RESOLVED"]).optional(),
-        q: z.string().max(160).default(""),
-      })
-      .strict()
-      .parse(req.query);
+    const query = listQuery.parse(req.query);
     res.json(
       await tickets.list(
         res.locals.session.user_id,
@@ -47,11 +49,11 @@ export function ticketRoutes(
     res.status(201).json(ticket);
   });
   app.get(base + "/:ticket", async (req, res) => {
-    const { workspace, ticket } = routes.required().parse(req.params);
+    const { workspace, ticket } = ticketParams.parse(req.params);
     res.json(await tickets.get(res.locals.session.user_id, workspace, ticket));
   });
   app.patch(base + "/:ticket", async (req, res) => {
-    const { workspace, ticket } = routes.required().parse(req.params);
+    const { workspace, ticket } = ticketParams.parse(req.params);
     const result = await tickets.update(
       res.locals.session.user_id,
       workspace,
@@ -62,11 +64,8 @@ export function ticketRoutes(
     res.json(result);
   });
   app.get(base + "/:ticket/messages", async (req, res) => {
-    const { workspace, ticket } = routes.required().parse(req.params);
-    const { after } = z
-      .object({ after: numberParam.default(0) })
-      .strict()
-      .parse(req.query);
+    const { workspace, ticket } = ticketParams.parse(req.params);
+    const { after } = historyQuery.parse(req.query);
     res.json(
       await tickets.messages(
         res.locals.session.user_id,
@@ -77,7 +76,7 @@ export function ticketRoutes(
     );
   });
   app.post(base + "/:ticket/messages", async (req, res) => {
-    const { workspace, ticket } = routes.required().parse(req.params);
+    const { workspace, ticket } = ticketParams.parse(req.params);
     const message = await tickets.send(
       res.locals.session.user_id,
       workspace,
