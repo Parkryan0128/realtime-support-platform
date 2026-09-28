@@ -3,12 +3,18 @@
   "version": "0.1.0",
   "description": "Customer support with workspace isolation and real-time messaging",
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.web.json",
+    "build": "tsc && vite build",
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "dev": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "start": "node dist/server/index.js",
+    "db:migrate": "tsx server/cli.ts migrate",
+    "db:seed": "tsx server/cli.ts seed",
+    "test:browser": "playwright test"
   },
   "repository": {
     "type": "git",
@@ -52,6 +58,6 @@
   },
   "private": true,
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }
