@@ -1,0 +1,77 @@
+name: realtime-support
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: support
+      POSTGRES_DB: support
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-support-local-password}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support -d support"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: 384m
+  redis:
+    image: redis:7.4-alpine
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "64mb",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: 128m
+  init:
+    build: .
+    image: realtime-support-platform:local
+    command: ["node", "dist/server/cli.js", "init"]
+    environment:
+      DATABASE_URL: postgres://support:${POSTGRES_PASSWORD:-support-local-password}@postgres:5432/support
+      DEMO_SEED: ${DEMO_SEED:-true}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-demo-support-password}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 256m
+  app:
+    build: .
+    image: realtime-support-platform:local
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: postgres://support:${POSTGRES_PASSWORD:-support-local-password}@postgres:5432/support
+      REDIS_URL: redis://redis:6379
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    mem_limit: 512m
+    restart: unless-stopped
+volumes:
+  database:
