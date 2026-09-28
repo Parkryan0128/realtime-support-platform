@@ -33,6 +33,7 @@ export function Conversation({
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(false);
   const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
   const pending = useRef<{ clientId: string; body: string } | null>(null);
   const cursor = useRef(0);
   const end = useRef<HTMLDivElement>(null);
@@ -58,6 +59,7 @@ export function Conversation({
       }
       if (controller.signal.aborted) return;
       setTicket(current);
+      setReadError("");
       if (collected.length)
         setMessages((previous) =>
           [
@@ -69,7 +71,7 @@ export function Conversation({
       cursor.current = after;
     }
     void load().catch((error) => {
-      if (!aborted(error)) setError(message(error));
+      if (!aborted(error)) setReadError(message(error));
     });
     return () => controller.abort();
   }, [request, path, tick]);
@@ -152,7 +154,11 @@ export function Conversation({
   if (!ticket)
     return (
       <section className="empty">
-        {error ? <p role="alert">{error}</p> : "Loading conversation…"}
+        {error || readError ? (
+          <p role="alert">{error || readError}</p>
+        ) : (
+          "Loading conversation…"
+        )}
       </section>
     );
   const staff = workspace.role !== "CUSTOMER";
@@ -281,9 +287,9 @@ export function Conversation({
         <div ref={end} />
       </div>
       <div className="reply-area">
-        {error && (
+        {(error || readError) && (
           <p role="alert" className="notice error">
-            {error}
+            {error || readError}
           </p>
         )}
         {ticket.status === "RESOLVED" && !retry ? (

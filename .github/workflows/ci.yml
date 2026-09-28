@@ -47,6 +47,8 @@ jobs:
           APP_ORIGIN: http://127.0.0.1:8080
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+        env:
+          BASE_URL: http://127.0.0.1:8080
       - name: Container logs
         if: always()
         run: docker compose logs --no-color > compose.log
