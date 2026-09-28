@@ -31,6 +31,16 @@ export async function redisProxy(redisUrl: string) {
   url.port = String(address.port);
   return {
     url: url.toString(),
+    async restart() {
+      if (!server.listening)
+        await new Promise<void>((done, reject) => {
+          server.once("error", reject);
+          server.listen(address.port, "127.0.0.1", () => {
+            server.off("error", reject);
+            done();
+          });
+        });
+    },
     async stop() {
       for (const socket of sockets) socket.destroy();
       if (server.listening)

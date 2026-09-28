@@ -237,3 +237,43 @@ test("mobile customers can create and read a conversation without horizontal ove
     fullPage: true,
   });
 });
+
+test("an admin can assign, reprioritize and release a customer request", async ({
+  page,
+}) => {
+  await login(page, "alice@acme.test");
+  const subject = await create(page);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await login(page, "admin@acme.test");
+  await page.getByRole("button", { name: new RegExp(subject) }).click();
+  await page
+    .getByLabel("Assigned to", { exact: true })
+    .selectOption({ label: "Sam" });
+  await expect(page.getByLabel("Assigned to", { exact: true })).toHaveValue(
+    "10000000-0000-4000-8000-000000000002",
+  );
+  await expect(page.getByLabel("Priority", { exact: true })).toBeEnabled();
+  await page.getByLabel("Priority", { exact: true }).selectOption("HIGH");
+  await expect(page.getByLabel("Priority", { exact: true })).toHaveValue(
+    "HIGH",
+  );
+  await expect(page.getByLabel("Status", { exact: true })).toBeEnabled();
+  await page.getByLabel("Status", { exact: true }).selectOption("PENDING");
+  await expect(page.getByLabel("Status", { exact: true })).toHaveValue(
+    "PENDING",
+  );
+  await page.reload();
+  await page.getByRole("button", { name: new RegExp(subject) }).click();
+  await expect(page.getByLabel("Assigned to", { exact: true })).toHaveValue(
+    "10000000-0000-4000-8000-000000000002",
+  );
+  await expect(page.getByLabel("Priority", { exact: true })).toHaveValue(
+    "HIGH",
+  );
+  await expect(page.getByLabel("Status", { exact: true })).toHaveValue(
+    "PENDING",
+  );
+  await page.getByLabel("Assigned to", { exact: true }).selectOption("");
+  await expect(page.getByLabel("Assigned to", { exact: true })).toHaveValue("");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});

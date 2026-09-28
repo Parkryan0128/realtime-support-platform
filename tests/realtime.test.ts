@@ -102,6 +102,73 @@ test("socket handshake rejects anonymous, forged CSRF and cross-origin connectio
     const error = await event<Error>(socket, "connect_error");
     expect(error.message).toMatch(/UNAUTHENTICATED|FORBIDDEN/);
   }
+  await db.query("UPDATE sessions SET expires_at=now()-interval '1 second'");
+  expect((await event<Error>(connect(valid), "connect_error")).message).toBe(
+    "UNAUTHENTICATED",
+  );
+});
+
+test("removing workspace access stops notifications for an already connected agent", async () => {
+  const staff = await watching("agent@acme.test");
+  const alice = await watching();
+  const ticket = await create();
+  const before = [
+    event(staff.socket, "ticket:changed"),
+    event(alice.socket, "ticket:changed"),
+  ];
+  runtime.changed({ workspaceId: demo.acme, ticketId: ticket.id });
+  await Promise.all(before);
+  await db.query(
+    "DELETE FROM memberships WHERE workspace_id=$1 AND user_id=$2",
+    [demo.acme, demo.agent],
+  );
+  const received: unknown[] = [];
+  staff.socket.on("ticket:changed", (change) => received.push(change));
+  const customerEvent = event(alice.socket, "ticket:changed");
+  runtime.changed({ workspaceId: demo.acme, ticketId: ticket.id });
+  await customerEvent;
+  await expect
+    .poll(() =>
+      staff.socket
+        .timeout(3000)
+        .emitWithAck("workspace:watch", { workspaceId: demo.acme }),
+    )
+    .toEqual({ ok: false, code: "NOT_FOUND" });
+  expect(received).toEqual([]);
+  await request(runtime.app)
+    .get(`/api/workspaces/${demo.acme}/tickets/${ticket.id}/messages`)
+    .set("Cookie", staff.credentials.cookie)
+    .expect(404);
+});
+
+test("switching workspaces replaces the previous socket subscription", async () => {
+  await db.query("INSERT INTO memberships VALUES($1,$2,'AGENT')", [
+    demo.orbit,
+    demo.agent,
+  ]);
+  const { socket } = await watching("agent@acme.test");
+  const acmeTicket = await create();
+  const orbitTicket = await runtime.tickets.create(demo.outsider, demo.orbit, {
+    subject: "Orbit conversation",
+    priority: "NORMAL",
+    body: "Hello",
+  });
+  await expect
+    .poll(() =>
+      socket
+        .timeout(3000)
+        .emitWithAck("workspace:watch", { workspaceId: demo.orbit }),
+    )
+    .toEqual({ ok: true });
+  const received: string[] = [];
+  socket.on("ticket:changed", (change: { ticketId: string }) =>
+    received.push(change.ticketId),
+  );
+  const incoming = event<{ ticketId: string }>(socket, "ticket:changed");
+  runtime.changed({ workspaceId: demo.acme, ticketId: acmeTicket.id });
+  runtime.changed({ workspaceId: demo.orbit, ticketId: orbitTicket.id });
+  expect((await incoming).ticketId).toBe(orbitTicket.id);
+  expect(received).toEqual([orbitTicket.id]);
 });
 test("subscriptions and outbound hints enforce tenant and customer ownership", async () => {
   const alice = await watching();
