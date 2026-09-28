@@ -33,12 +33,10 @@ export const errors: ErrorRequestHandler = (
       .status(413)
       .json({ code: "TOO_LARGE", message: "Request body is too large" });
   } else if (error?.code === "55P03" || error?.code === "40P01") {
-    response
-      .status(503)
-      .json({
-        code: "RETRY_LATER",
-        message: "Resource is busy; retry this request",
-      });
+    response.status(503).json({
+      code: "RETRY_LATER",
+      message: "Resource is busy; retry this request",
+    });
   } else {
     console.error("Request failed", error);
     response

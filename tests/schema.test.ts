@@ -21,7 +21,7 @@ test("migrations can be applied again without changing the schema", async () => 
   ]);
 });
 
-test("database rejects a ticket assigned to a member of another workspace", async () => {
+test("database rejects a ticket owned by a customer of another workspace", async () => {
   const user = randomUUID(),
     one = randomUUID(),
     two = randomUUID();

@@ -14,7 +14,7 @@ Passwords use scrypt. Sessions use random tokens in HttpOnly, SameSite cookies; 
 
 Queries constrain workspace and customer ownership. Composite foreign keys prevent cross-workspace ticket/message references. This is application authorization, not PostgreSQL row-level security. Membership is also rechecked before each outgoing socket notification; revoked sessions disconnect on their next notification or command.
 
-Sockets carry invalidation hints, never message bodies. Each app checks its own connected viewers; the Redis adapter forwards change events to other instances. Clients fetch authorized history using a sequence cursor after reconnecting. A periodic HTTP refresh covers a missed publish even when the socket stays connected.
+Sockets carry invalidation hints, never message bodies. Each app checks its own connected viewers; Redis Pub/Sub forwards change events to other instances. Clients fetch authorized history using a sequence cursor after reconnecting. A periodic HTTP refresh covers a missed publish even when the socket stays connected.
 
 There is no transactional outbox. A crash between commit and publish can delay visibility until the next refresh. Redis outages do not erase messages or block HTTP writes; initial startup still requires Redis to be reachable. Only WebSocket transport is enabled, so a multi-instance proxy must support upgrades but needs no polling-session affinity.
 

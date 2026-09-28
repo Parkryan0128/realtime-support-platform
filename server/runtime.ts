@@ -1,8 +1,6 @@
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import express from "express";
-import { createClient } from "redis";
-import { createAdapter } from "@socket.io/redis-adapter";
 import { Server, type Socket } from "socket.io";
 import { z } from "zod";
 import { createApp, type AppOptions } from "./app.js";
@@ -11,9 +9,9 @@ import { ApiError, forbidden } from "./errors.js";
 import type { TicketChange } from "./contracts.js";
 import { Tickets } from "./tickets.js";
 import { ticketRoutes } from "./ticket-routes.js";
+import { notifications } from "./notifications.js";
 
 const watch = z.object({ workspaceId: z.string().uuid() }).strict();
-const changeSchema = watch.extend({ ticketId: z.string().uuid() });
 type Ack = (result: { ok: boolean; code?: string }) => void;
 
 export async function createRuntime(
@@ -27,40 +25,8 @@ export async function createRuntime(
     maxHttpBufferSize: 4096,
     serveClient: false,
   });
-  // Kept outside socket.data: session cookies must never enter the Redis adapter.
+  // Kept outside socket.data: session cookies stay private to this process.
   const viewers = new Map<string, { cookie: string; workspaceId?: string }>();
-  const pub = options.redisUrl
-    ? createClient({ url: options.redisUrl })
-    : undefined;
-  const sub = pub?.duplicate();
-  if (pub && sub) {
-    pub.on("error", (error) =>
-      console.error("Redis publisher:", error.message),
-    );
-    sub.on("error", (error) =>
-      console.error("Redis subscriber:", error.message),
-    );
-    let startupTimer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        Promise.all([pub.connect(), sub.connect()]),
-        new Promise<never>((_, reject) => {
-          startupTimer = setTimeout(
-            () => reject(new Error("Redis connection timed out")),
-            10000,
-          );
-        }),
-      ]);
-      io.adapter(createAdapter(pub, sub));
-    } catch (error) {
-      if (pub.isOpen) pub.destroy();
-      if (sub.isOpen) sub.destroy();
-      await new Promise<void>((done) => io.close(() => done()));
-      throw error;
-    } finally {
-      clearTimeout(startupTimer);
-    }
-  }
 
   io.use(async (socket, next) => {
     try {
@@ -135,15 +101,13 @@ export async function createRuntime(
       void job.finally(() => pending.delete(job));
     }
   }
-  io.on("ticket:changed", (input: unknown) => {
-    const parsed = changeSchema.safeParse(input);
-    if (parsed.success) local(parsed.data);
-  });
+  const redis = options.redisUrl
+    ? await notifications(options.redisUrl, local)
+    : undefined;
   function changed(change: TicketChange) {
     local(change);
     // Notifications are hints. Committed messages remain available if Redis is down.
-    if (pub?.isReady && sub?.isReady)
-      io.serverSideEmit("ticket:changed", change);
+    redis?.publish(change);
   }
   ticketRoutes(app, tickets, changed);
   if (options.webDirectory)
@@ -171,10 +135,7 @@ export async function createRuntime(
     async close() {
       await new Promise<void>((done) => io.close(() => done()));
       await Promise.allSettled(pending);
-      await Promise.all([
-        pub?.isOpen ? pub.close() : undefined,
-        sub?.isOpen ? sub.close() : undefined,
-      ]);
+      await redis?.close();
     },
   };
 }

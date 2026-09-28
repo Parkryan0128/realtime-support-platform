@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Customer support with workspace isolation and real-time messaging",
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.web.json && tsc -p tsconfig.tests.json",
     "build": "tsc && vite build",
     "test": "vitest run",
     "format": "prettier --write .",
@@ -27,7 +27,6 @@
   },
   "homepage": "https://github.com/Parkryan0128/realtime-support-platform#readme",
   "dependencies": {
-    "@socket.io/redis-adapter": "8.3.0",
     "cookie": "2.0.1",
     "express": "5.2.1",
     "helmet": "8.3.0",
