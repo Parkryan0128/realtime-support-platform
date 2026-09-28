@@ -28,6 +28,7 @@ test("passwords are verified and authentication uses an HttpOnly cookie", async 
     .post("/api/auth/login")
     .send({ email: "alice@acme.test", password: "wrong" })
     .expect(401);
+  await login("unknown@acme.test").expect(401);
   const response = await login();
   expect(response.status).toBe(200);
   expect(response.headers["cache-control"]).toBe("no-store");
@@ -41,6 +42,34 @@ test("passwords are verified and authentication uses an HttpOnly cookie", async 
   expect(me.body.workspaces).toEqual([
     { id: demo.acme, name: "Acme", role: "CUSTOMER" },
   ]);
+});
+
+test("logging out one session leaves another session active and their CSRF tokens are not interchangeable", async () => {
+  const first = await login();
+  const second = await login();
+  expect(first.headers["set-cookie"][0]).not.toBe(
+    second.headers["set-cookie"][0],
+  );
+  await request(runtime.app)
+    .post("/api/auth/logout")
+    .set("Cookie", first.headers["set-cookie"])
+    .set("X-CSRF-Token", second.body.csrfToken)
+    .send({})
+    .expect(403);
+  await request(runtime.app)
+    .post("/api/auth/logout")
+    .set("Cookie", first.headers["set-cookie"])
+    .set("X-CSRF-Token", first.body.csrfToken)
+    .send({})
+    .expect(204);
+  await request(runtime.app)
+    .get("/api/me")
+    .set("Cookie", first.headers["set-cookie"])
+    .expect(401);
+  await request(runtime.app)
+    .get("/api/me")
+    .set("Cookie", second.headers["set-cookie"])
+    .expect(200);
 });
 test("anonymous and expired sessions cannot access data", async () => {
   await request(runtime.app).get("/api/me").expect(401);

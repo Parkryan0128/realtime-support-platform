@@ -246,3 +246,154 @@ test("HTTP validation rejects spoofed owners, blank messages and invalid cursors
     .set("Cookie", cookie)
     .expect(400);
 });
+
+test("the inbox paginates, searches and filters without mixing customers or workspaces", async () => {
+  const ids: string[] = [];
+  for (let i = 0; i < 52; i++) {
+    const ticket = await tickets.create(demo.alice, demo.acme, {
+      subject: `Refund ${i}`,
+      priority: "NORMAL",
+      body: "Help",
+    });
+    ids.push(ticket.id);
+    await db.query("UPDATE tickets SET updated_at=$1 WHERE id=$2", [
+      new Date(Date.UTC(2025, 0, 1, 0, 0, i)),
+      ticket.id,
+    ]);
+  }
+  await tickets.create(demo.bob, demo.acme, {
+    subject: "Refund private",
+    priority: "NORMAL",
+    body: "Bob only",
+  });
+  await tickets.create(demo.outsider, demo.orbit, {
+    subject: "Refund elsewhere",
+    priority: "NORMAL",
+    body: "Orbit only",
+  });
+  const first = await tickets.list(demo.alice, demo.acme, 0);
+  const second = await tickets.list(demo.alice, demo.acme, 1);
+  expect(first.items.map((t) => t.id)).toEqual([...ids].reverse().slice(0, 50));
+  expect(first.hasMore).toBe(true);
+  expect(second.items.map((t) => t.id)).toEqual([...ids].reverse().slice(50));
+  expect(second.hasMore).toBe(false);
+  expect(await tickets.list(demo.alice, demo.acme, 2)).toMatchObject({
+    items: [],
+    hasMore: false,
+  });
+  await tickets.update(demo.agent, demo.acme, ids[0], {
+    version: 1,
+    status: "PENDING",
+  });
+  expect(
+    (
+      await tickets.list(demo.agent, demo.acme, 0, "PENDING", "rEFuND")
+    ).items.map((t) => t.id),
+  ).toEqual([ids[0]]);
+  expect(
+    (await tickets.list(demo.alice, demo.acme, 0, undefined, "private")).items,
+  ).toEqual([]);
+  expect(
+    (await tickets.list(demo.agent, demo.acme, 0, undefined, "elsewhere"))
+      .items,
+  ).toEqual([]);
+  expect(
+    (await tickets.list(demo.agent, demo.acme, 0, undefined, "missing phrase"))
+      .items,
+  ).toEqual([]);
+});
+
+test("admins can reassign tickets while agents cannot take or release someone else's assignment", async () => {
+  const ticket = await create();
+  const assigned = await tickets.update(demo.admin, demo.acme, ticket.id, {
+    version: 1,
+    assigneeId: demo.admin,
+    priority: "HIGH",
+    status: "PENDING",
+  });
+  expect(assigned).toMatchObject({
+    version: 2,
+    assignee_id: demo.admin,
+    priority: "HIGH",
+    status: "PENDING",
+  });
+  for (const assigneeId of [demo.agent, null]) {
+    await expect(
+      tickets.update(demo.agent, demo.acme, ticket.id, {
+        version: 2,
+        assigneeId,
+      }),
+    ).rejects.toEqual(code("FORBIDDEN"));
+  }
+  expect((await tickets.get(demo.admin, demo.acme, ticket.id)).version).toBe(2);
+  const reassigned = await tickets.update(demo.admin, demo.acme, ticket.id, {
+    version: 2,
+    assigneeId: demo.agent,
+  });
+  expect(reassigned).toMatchObject({
+    version: 3,
+    assignee_id: demo.agent,
+    priority: "HIGH",
+    status: "PENDING",
+  });
+  const released = await tickets.update(demo.agent, demo.acme, ticket.id, {
+    version: 3,
+    assigneeId: null,
+  });
+  expect(released).toMatchObject({ version: 4, assignee_id: null });
+});
+
+test("a failed message insert rolls back both ticket creation and sequence allocation", async () => {
+  await db.query(
+    "ALTER TABLE messages ADD CONSTRAINT reject_test_message CHECK (body <> 'forced failure')",
+  );
+  try {
+    await expect(
+      tickets.create(demo.alice, demo.acme, {
+        subject: "Rollback",
+        priority: "NORMAL",
+        body: "forced failure",
+      }),
+    ).rejects.toMatchObject({ code: "23514" });
+    expect(await db.query("SELECT id FROM tickets")).toEqual([]);
+    expect(await db.query("SELECT id FROM messages")).toEqual([]);
+    const ticket = await create();
+    await expect(
+      tickets.send(demo.alice, demo.acme, ticket.id, {
+        clientId: randomUUID(),
+        body: "forced failure",
+      }),
+    ).rejects.toMatchObject({ code: "23514" });
+    expect(
+      (await tickets.get(demo.alice, demo.acme, ticket.id)).next_sequence,
+    ).toBe(1);
+    const saved = await tickets.send(demo.alice, demo.acme, ticket.id, {
+      clientId: randomUUID(),
+      body: "Retry after failure",
+    });
+    expect(saved.sequence).toBe(2);
+    expect(
+      (
+        await tickets.messages(demo.alice, demo.acme, ticket.id, 0)
+      ).messages.map((m) => m.sequence),
+    ).toEqual([1, 2]);
+  } finally {
+    await db.query("ALTER TABLE messages DROP CONSTRAINT reject_test_message");
+  }
+});
+
+test("message retry IDs are scoped to their sender and conversation", async () => {
+  const first = await create();
+  const second = await create();
+  const input = { clientId: randomUUID(), body: "Shared client ID" };
+  const messages = [
+    await tickets.send(demo.alice, demo.acme, first.id, input),
+    await tickets.send(demo.agent, demo.acme, first.id, input),
+    await tickets.send(demo.alice, demo.acme, second.id, input),
+  ];
+  expect(new Set(messages.map((m) => m.id)).size).toBe(3);
+  expect(messages.map((m) => m.sequence)).toEqual([2, 3, 2]);
+  expect((await tickets.send(demo.alice, demo.acme, first.id, input)).id).toBe(
+    messages[0].id,
+  );
+});
